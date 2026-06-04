@@ -67,6 +67,39 @@ PORT=8080 CLAUDE_DIR=/custom/path/.claude bun run start
 - `POST /api/sessions/:project/:session/continue` - Continue conversation
 - `POST /api/sessions/:project` - Create new session
 
+#### `GET /api/projects` response
+
+Each session entry includes its `summary` and `timestamp` so the web GUI can
+render and sort the sidebar without a request per session:
+
+```json
+{
+  "projects": [
+    {
+      "name": "-home-user-my-project",
+      "displayName": "/home/user/my/project",
+      "sessionCount": 2,
+      "sessions": [
+        { "id": "abc123", "summary": "Fix the build", "timestamp": "2026-01-02T03:04:05.000Z" },
+        { "id": "def456", "summary": "Add tests", "timestamp": "2026-01-01T10:00:00.000Z" }
+      ]
+    }
+  ]
+}
+```
+
+#### `GET /api/sessions/:project/:session` response
+
+```json
+{
+  "id": "abc123",
+  "projectName": "-home-user-my-project",
+  "summary": "Fix the build",
+  "timestamp": "2026-01-02T03:04:05.000Z",
+  "messages": [ /* user / assistant records */ ]
+}
+```
+
 ### Example: Continue Conversation
 ```bash
 curl -X POST http://localhost:3000/api/sessions/my-project/session-123/continue \
