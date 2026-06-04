@@ -22,9 +22,9 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Serve static files from parent directory
+// Serve the built GUI (vite build outputs to ../dist)
 app.use('/*', serveStatic({
-  root: join(__dirname, '..'),
+  root: join(__dirname, '..', 'dist'),
   rewriteRequestPath: (path) => path.replace(/^\//, '')
 }))
 
@@ -39,6 +39,35 @@ app.get('/api/health', (c) => {
   })
 })
 
+// Extract a session's summary + last timestamp from its JSONL content.
+// Mirrors the GUI's own metadata logic: prefer an explicit summary record,
+// fall back to the first user message, then to 'Untitled'.
+function extractSessionMeta(content) {
+  const lines = content.trim().split('\n')
+  let summary = null
+  let firstMessage = null
+  let lastTimestamp = null
+
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line)
+      if (record.type === 'summary') {
+        summary = record.summary
+      } else if (record.type === 'user' && !firstMessage) {
+        const content = record.message?.content
+        if (typeof content === 'string') firstMessage = content
+      }
+      if (record.timestamp) {
+        lastTimestamp = record.timestamp
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+  }
+
+  return { summary: summary || firstMessage || 'Untitled', timestamp: lastTimestamp }
+}
+
 // Get projects list
 app.get('/api/projects', async (c) => {
   try {
@@ -51,14 +80,26 @@ app.get('/api/projects', async (c) => {
     for (const project of projects) {
       if (project.isDirectory()) {
         const projectPath = join(projectsDir, project.name)
-        const sessions = await readdir(projectPath)
-        const sessionFiles = sessions.filter(file => file.endsWith('.jsonl'))
-        
+        const entries = await readdir(projectPath)
+        const sessionFiles = entries.filter(file => file.endsWith('.jsonl'))
+
+        // Read each session's metadata (summary + timestamp) up front so the
+        // GUI's sidebar doesn't have to fetch every session individually.
+        const sessions = await Promise.all(sessionFiles.map(async (file) => {
+          const id = file.replace('.jsonl', '')
+          try {
+            const content = await readFile(join(projectPath, file), 'utf-8')
+            return { id, ...extractSessionMeta(content) }
+          } catch (e) {
+            return { id, summary: id, timestamp: null }
+          }
+        }))
+
         projectList.push({
           name: project.name,
           displayName: project.name.replace(/-/g, '/'),
           sessionCount: sessionFiles.length,
-          sessions: sessionFiles.map(file => file.replace('.jsonl', ''))
+          sessions
         })
       }
     }

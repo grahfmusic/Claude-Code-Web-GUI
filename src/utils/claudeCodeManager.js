@@ -1,5 +1,6 @@
 // Claude Code Manager - handles all core functionality for React version
 import { Utils } from './utils'
+import { fetchProjects, fetchSession } from './serverApi'
 export class ClaudeCodeManager {
   constructor() {
     this.gistManager = new GistManager()
@@ -161,12 +162,45 @@ export class ClaudeCodeManager {
       
       // Load session metadata
       const sessionsWithData = await this.loadAllSessionsMetadata(allSessions)
-      
+
       return { projects, allSessions: sessionsWithData }
-      
+
     } catch (error) {
       throw new Error(`Failed to load projects: ${error.message}`)
     }
+  }
+
+  // Server-mode equivalent of loadProjects(): reads from the bundled Bun
+  // server over HTTP instead of the File System Access API. Returns the same
+  // { projects, allSessions } shape, but sessions carry projectName + id
+  // instead of a file handle (see loadSessionMessages for the read branch).
+  async loadProjectsFromServer() {
+    const rawProjects = await fetchProjects()
+    const projects = []
+    const allSessions = []
+
+    for (const p of rawProjects) {
+      // /api/projects already includes per-session summary + timestamp, so no
+      // per-session round-trips are needed here.
+      const sessions = p.sessions.map((s) => ({
+        id: s.id,
+        projectName: p.name,
+        summary: s.summary || 'Untitled',
+        timestamp: s.timestamp,
+      }))
+
+      projects.push({
+        name: p.displayName,
+        path: p.name,
+        sessions: sessions,
+      })
+
+      allSessions.push(...sessions)
+    }
+
+    // Sort by time (newest first), matching loadAllSessionsMetadata
+    const sorted = allSessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    return { projects, allSessions: sorted }
   }
 
   async loadAllSessionsMetadata(sessions) {
@@ -213,6 +247,11 @@ export class ClaudeCodeManager {
   }
 
   async loadSessionMessages(session) {
+    // Server mode: no file handle, fetch messages from the API instead
+    if (!session.handle) {
+      const data = await fetchSession(session.projectName, session.id)
+      return data.messages
+    }
     try {
       const file = await session.handle.getFile()
       const content = await file.text()

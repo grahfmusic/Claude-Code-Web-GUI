@@ -12,6 +12,7 @@ import ShareModal from './components/ShareModal'
 
 // Import utilities
 import { ClaudeCodeManager } from './utils/claudeCodeManager'
+import { isServerAvailable } from './utils/serverApi'
 import { useLanguage } from './hooks/useLanguage'
 
 function App() {
@@ -41,9 +42,24 @@ function App() {
   const requestDirectoryAccess = useCallback(async () => {
     try {
       if (!('showDirectoryPicker' in window)) {
-        setAppState(prev => ({ 
-          ...prev, 
-          error: t('errors.unsupported') 
+        // Firefox / no File System Access API: fall back to the local server
+        if (await isServerAvailable()) {
+          setAppState(prev => ({ ...prev, loading: true, error: null }))
+          const { projects, allSessions } = await claudeManager.loadProjectsFromServer()
+          setAppState(prev => ({
+            ...prev,
+            view: 'sessions',
+            directoryHandle: null,
+            projects,
+            allSessions,
+            loading: false,
+            error: null
+          }))
+          return
+        }
+        setAppState(prev => ({
+          ...prev,
+          error: t('errors.unsupported')
         }))
         return
       }
